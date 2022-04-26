@@ -1,13 +1,11 @@
 
-import json
 import os
 import xml.etree.ElementTree as ET
 import textwrap
 from louis import translateString
-from datetime import datetime
-from helpers import get_current_date
+from common.helpers import get_current_date
 from bs4 import BeautifulSoup
-
+from common.exceptions import TranslationTableNotFound
 
 ## TT -> Translation table
 ## en-ueb -> english unified braille
@@ -38,20 +36,41 @@ XMLNS_LINK = "http://purl.org/dc/elements/1.1/"
 class BRFDocument:
     def __init__(self, content):
         self.content = content
-    def generate_document():
-        pass
+        self.translated_text = None
+        self.file_format = "application/txt"
+    def generate_document(self, braille_type, verbose = False):
+        if braille_type not in TT.keys():
+            raise TranslationTableNotFound(f"Cannot translate document using translation table {braille_type}, not found")
+        translation_table = TT[braille_type]
+        final_text = []
+        if verbose:
+            print(f"Using translation table {translation_table}")
+        for data_page in self.content:
+            lines = data_page["lines"]
+            for line in lines:
+                translated_line = translateString([translation_table], line["content"])
+                wrapped_text = textwrap.wrap(translated_line, 39)
 
+                final_text += wrapped_text
+        self.translated_text = "\n".join(final_text)
+        return self.translated_text
+    def __repr__(self):
+        return self.translated_text
+                
+                
+                
 class PEFDocument:
     def __init__(
         self,
         content,
+        identifier,
         creation_date=get_current_date(),
         title="Document title",
         creator=os.getlogin(),
-        file_format="application/xml",
+        file_format="application/x-pef+xml",
         description="File descripton",
     ):
-        """_summary_
+        """Class representing a Portable Embossing Format
 
         Args:
             content (List): Document's data
@@ -62,9 +81,11 @@ class PEFDocument:
             description (str, optional): Description of the file. Defaults to "File descripton".
         """
         self.creation_date = creation_date
-        self.root = ET.Element("pef", attrib={"version": "2008-1"})
+        self.root = ET.Element("pef", attrib={"version": "2008-1"}, 
+                               xmlns='xmlns="http://www.daisy.org/ns/2008/pef"')
         self.title = title
         self.creator = creator
+        self.identifier=identifier
         self.file_format = file_format
         self.description = description
         self.header = self.__create_header()
@@ -77,6 +98,8 @@ class PEFDocument:
     def __create_meta(self):
         meta = ET.SubElement(self.header, "meta", attrib={"xmlns:dc": XMLNS_LINK})
         el_format = ET.SubElement(meta, "dc:format")
+        el_identifier = ET.SubElement(meta, "dc:identifier")
+        el_identifier.text = self.identifier
         el_date = ET.SubElement(
             meta,
             "dc:date",
@@ -94,7 +117,7 @@ class PEFDocument:
     def __create_section(self, volume):
         return ET.SubElement(volume, "section")
 
-    def __create_volume(self, nb_cols=1, nb_rows=1, is_duplex=False, row_gap=1):
+    def __create_volume(self, nb_cols=1, nb_rows=1, is_duplex=False, row_gap=0):
         """_summary_
 
         Args:
@@ -135,7 +158,7 @@ class PEFDocument:
         self.__create_meta()
         volume = self.__create_volume()
         max_rows = 0
-        max_cols = 0
+        max_cols = 40
         
         for data_page in self.content:
             section = self.__create_section(volume)
@@ -144,27 +167,23 @@ class PEFDocument:
             if max_rows < len(lines):
                 max_rows = len(lines)
             for line in lines:
-                
-                content = translateString([UNICODE_PRODUCER,TT[braille_type]], line["content"])
-                if max_cols < len(content):
-                    max_cols = len(content)
-                self.__create_row(content, page)
+                trans_content = translateString([UNICODE_PRODUCER,TT[braille_type]], line["content"])
+                if len(trans_content) > max_cols:
+                    wrapped_content = textwrap.wrap(trans_content, max_cols)
+                    for content in wrapped_content:
+                        self.__create_row(content, page)
+                else:
+                    self.__create_row(trans_content, page)
         volume.attrib['rows'] = f"{max_rows}"
         #TODO check how to attribute this value to get better visual 
-        volume.attrib['max_cols'] = f"{max_cols // 2}"
+        volume.attrib['max_cols'] = f"{max_cols}"
         
-        print(dir(volume))
+        bs = BeautifulSoup(ET.tostring(self.root,encoding='unicode'), "xml")
+        return bs.prettify()
+    
     def __repr__(self):
-        
         bs = BeautifulSoup(ET.tostring(self.root,encoding='unicode'), "xml")
         return bs.prettify()
         
 
-if __name__ == "__main__":
     
-    with open("./test_file.json", "r") as f:
-        data = json.load(f)["data"]
-        doc = PEFDocument(data)
-        
-        doc.generate_document('en-us-g1')
-        print(doc)

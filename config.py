@@ -11,6 +11,8 @@ class Config():
         self.HOST_IP = os.environ['HOST_IP']
         self.PORT = os.environ['PORT']
         self.ALLOWED_TYPES = set(os.environ['ALLOWED_TYPES'].split(','))
+        self.SAVE_DIR = os.environ['SAVE_DIR']
+        self.ALLOWED_CONVERSIONS = set(os.environ['ALLOWED_CONVERSIONS'].split(','))
     def __repr__(self) -> str:
         attrs = vars(self)
         return ', '.join("%s: %s" % item for item in attrs.items())
